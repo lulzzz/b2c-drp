@@ -1,0 +1,133 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<TrustFrameworkPolicy xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+  xmlns="http://schemas.microsoft.com/online/cpim/schemas/2013/06" PolicySchemaVersion="0.3.0.0" TenantId="yourtenant.onmicrosoft.com" PolicyId="B2C_1A_TrustFrameworkExtensions_DRP" PublicPolicyUri="http://yourtenant.onmicrosoft.com/B2C_1A_TrustFrameworkExtensions_DRP">
+
+  <BasePolicy>
+    <TenantId>yourtenant.onmicrosoft.com</TenantId>
+    <PolicyId>B2C_1A_TrustFrameworkExtensions</PolicyId>
+  </BasePolicy>
+  <BuildingBlocks>
+    <ClaimsSchema>
+      <ClaimType Id="salt">
+        <DisplayName>salt</DisplayName>
+        <DataType>string</DataType>
+      </ClaimType>
+      <ClaimType Id="hashPassword">
+        <DisplayName>Password in HASH format</DisplayName>
+        <DataType>string</DataType>
+      </ClaimType>
+    </ClaimsSchema>
+    <ClaimsTransformations>
+      <ClaimsTransformation Id="HashPassword" TransformationMethod="Hash">
+        <InputClaims>
+          <InputClaim ClaimTypeReferenceId="newPassword" TransformationClaimType="plaintext" />
+          <InputClaim ClaimTypeReferenceId="salt" TransformationClaimType="salt" />
+        </InputClaims>
+        <InputParameters>
+          <InputParameter Id="randomizerSecret" DataType="string" Value="B2C_1A_AccountTransformSecret" />
+        </InputParameters>
+        <OutputClaims>
+          <OutputClaim ClaimTypeReferenceId="hashPassword" TransformationClaimType="hash" />
+        </OutputClaims>
+      </ClaimsTransformation>
+    </ClaimsTransformations>
+  </BuildingBlocks>
+
+  <ClaimsProviders>
+
+    <ClaimsProvider>
+      <DisplayName>Local Account</DisplayName>
+      <TechnicalProfiles>
+        <TechnicalProfile Id="LocalAccountSignUpWithLogonEmail">
+          <Metadata>
+            <!-- REMOVE the following line in production environments -->
+            <Item Key="EnforceEmailVerification">false</Item>
+          </Metadata>
+          <ValidationTechnicalProfiles>
+            <ValidationTechnicalProfile ReferenceId="SetSalt"/>
+            <ValidationTechnicalProfile ReferenceId="REST-API-SignUp"/>
+          </ValidationTechnicalProfiles>
+        </TechnicalProfile>
+
+        <TechnicalProfile Id="LocalAccountDiscoveryUsingEmailAddress">
+          <Metadata>
+            <!-- REMOVE the following line in production environments -->
+            <Item Key="EnforceEmailVerification">false</Item>
+          </Metadata>
+        </TechnicalProfile>
+
+        <TechnicalProfile Id="LocalAccountWritePasswordUsingObjectId">
+          <ValidationTechnicalProfiles>
+            <ValidationTechnicalProfile ReferenceId="SetSalt"/>
+            <ValidationTechnicalProfile ReferenceId="REST-API-PasswordReset"/>
+          </ValidationTechnicalProfiles>
+        </TechnicalProfile>
+
+      </TechnicalProfiles>
+    </ClaimsProvider>
+
+    <ClaimsProvider>
+      <DisplayName>Custom REST API</DisplayName>
+      <TechnicalProfiles>
+        <TechnicalProfile Id="REST-API-Base">
+          <DisplayName>Base REST API pechnical profile</DisplayName>
+          <Protocol Name="Proprietary" Handler="Web.TPEngine.Providers.RestfulProvider, Web.TPEngine, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null" />
+          <Metadata>
+            <Item Key="AuthenticationType">None</Item>
+            <Item Key="SendClaimsIn">Body</Item>
+            <!-- REMOVE the following line in production environments -->
+            <Item Key="AllowInsecureAuthInProduction">true</Item>
+          </Metadata>
+          <UseTechnicalProfileForSessionManagement ReferenceId="SM-Noop" />
+        </TechnicalProfile>
+
+        <TechnicalProfile Id="REST-API-SignUp">
+          <Metadata>
+            <Item Key="ServiceUrl">https://b2c-drp-1.azurewebsites.net/api/signup</Item>
+          </Metadata>
+          <InputClaimsTransformations>
+            <InputClaimsTransformation ReferenceId="HashPassword" />
+          </InputClaimsTransformations>
+          <InputClaims>
+            <InputClaim ClaimTypeReferenceId="email" PartnerClaimType="signInName" />
+            <InputClaim ClaimTypeReferenceId="hashPassword" PartnerClaimType="password" />
+            <InputClaim ClaimTypeReferenceId="displayName" />
+            <InputClaim ClaimTypeReferenceId="givenName" />
+            <InputClaim ClaimTypeReferenceId="surName" />
+          </InputClaims>
+          <IncludeTechnicalProfile ReferenceId="REST-API-Base" />
+        </TechnicalProfile>
+
+        <TechnicalProfile Id="REST-API-PasswordReset">
+          <Metadata>
+            <Item Key="ServiceUrl">https://b2c-drp-1.azurewebsites.net/api/passwordreset</Item>
+          </Metadata>
+          <InputClaimsTransformations>
+            <InputClaimsTransformation ReferenceId="HashPassword" />
+          </InputClaimsTransformations>
+          <InputClaims>
+            <InputClaim ClaimTypeReferenceId="email" PartnerClaimType="signInName" />
+            <InputClaim ClaimTypeReferenceId="hashPassword" PartnerClaimType="password" />
+          </InputClaims>
+          <IncludeTechnicalProfile ReferenceId="REST-API-Base" />
+        </TechnicalProfile>
+
+        <TechnicalProfile Id="SetSalt">
+          <DisplayName>Unlink Facebook</DisplayName>
+          <Protocol Name="Proprietary" Handler="Web.TPEngine.Providers.ClaimsTransformationProtocolProvider, Web.TPEngine, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null" />
+          <OutputClaims>
+            <OutputClaim ClaimTypeReferenceId="salt" DefaultValue="12345" AlwaysUseDefaultValue="true" />
+          </OutputClaims>
+          <UseTechnicalProfileForSessionManagement ReferenceId="SM-Noop" />
+        </TechnicalProfile>
+      </TechnicalProfiles>
+    </ClaimsProvider>
+
+  </ClaimsProviders>
+
+  <!--UserJourneys>
+	
+	</UserJourneys-->
+
+</TrustFrameworkPolicy>
