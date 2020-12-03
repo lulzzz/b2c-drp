@@ -19,7 +19,19 @@
       </ClaimType>
     </ClaimsSchema>
     <ClaimsTransformations>
-      <ClaimsTransformation Id="HashPassword" TransformationMethod="Hash">
+      <ClaimsTransformation Id="HASH-Password" TransformationMethod="Hash">
+        <InputClaims>
+          <InputClaim ClaimTypeReferenceId="password" TransformationClaimType="plaintext" />
+          <InputClaim ClaimTypeReferenceId="salt" TransformationClaimType="salt" />
+        </InputClaims>
+        <InputParameters>
+          <InputParameter Id="randomizerSecret" DataType="string" Value="B2C_1A_AccountTransformSecret" />
+        </InputParameters>
+        <OutputClaims>
+          <OutputClaim ClaimTypeReferenceId="hashPassword" TransformationClaimType="hash" />
+        </OutputClaims>
+      </ClaimsTransformation>
+      <ClaimsTransformation Id="HASH-NewPassword" TransformationMethod="Hash">
         <InputClaims>
           <InputClaim ClaimTypeReferenceId="newPassword" TransformationClaimType="plaintext" />
           <InputClaim ClaimTypeReferenceId="salt" TransformationClaimType="salt" />
@@ -29,6 +41,14 @@
         </InputParameters>
         <OutputClaims>
           <OutputClaim ClaimTypeReferenceId="hashPassword" TransformationClaimType="hash" />
+        </OutputClaims>
+      </ClaimsTransformation>
+      <ClaimsTransformation Id="SetSalt" TransformationMethod="CreateStringClaim">
+        <InputParameters>
+          <InputParameter Id="value" DataType="string" Value="12345" />
+        </InputParameters>
+        <OutputClaims>
+          <OutputClaim ClaimTypeReferenceId="salt" TransformationClaimType="createdClaim" />
         </OutputClaims>
       </ClaimsTransformation>
     </ClaimsTransformations>
@@ -45,7 +65,6 @@
             <Item Key="EnforceEmailVerification">false</Item>
           </Metadata>
           <ValidationTechnicalProfiles>
-            <ValidationTechnicalProfile ReferenceId="SetSalt"/>
             <ValidationTechnicalProfile ReferenceId="REST-API-SignUp"/>
           </ValidationTechnicalProfiles>
         </TechnicalProfile>
@@ -59,14 +78,111 @@
 
         <TechnicalProfile Id="LocalAccountWritePasswordUsingObjectId">
           <ValidationTechnicalProfiles>
-            <ValidationTechnicalProfile ReferenceId="SetSalt"/>
             <ValidationTechnicalProfile ReferenceId="REST-API-PasswordReset"/>
           </ValidationTechnicalProfiles>
         </TechnicalProfile>
 
+        <TechnicalProfile Id="SelfAsserted-LocalAccountSignin-Email-DR">
+          <DisplayName>Local Account Signin</DisplayName>
+          <Protocol Name="Proprietary" Handler="Web.TPEngine.Providers.SelfAssertedAttributeProvider, Web.TPEngine, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null"/>
+          <Metadata>
+            <Item Key="SignUpTarget">SignUpWithLogonEmailExchange</Item>
+            <Item Key="setting.operatingMode">Email</Item>
+            <Item Key="ContentDefinitionReferenceId">api.selfasserted</Item>
+          </Metadata>
+          <IncludeInSso>false</IncludeInSso>
+          <InputClaims>
+            <InputClaim ClaimTypeReferenceId="signInName"/>
+          </InputClaims>
+          <OutputClaims>
+            <OutputClaim ClaimTypeReferenceId="signInName" Required="true"/>
+            <OutputClaim ClaimTypeReferenceId="password" Required="true"/>
+            <OutputClaim ClaimTypeReferenceId="objectId"/>
+            <OutputClaim ClaimTypeReferenceId="authenticationSource"/>
+          </OutputClaims>
+          <ValidationTechnicalProfiles>
+
+            <!-- Check if the user exists in the directory -->
+            <ValidationTechnicalProfile ReferenceId="AAD-UserReadUsingSignInName" ContinueOnError="true" />
+
+            <!-- If user not foudn, call the remote profile via the REST API -->
+            <ValidationTechnicalProfile ReferenceId="REST-API-SignIn" ContinueOnError="false">
+              <Preconditions>
+                <Precondition Type="ClaimsExist" ExecuteActionsIf="true">
+                  <Value>objectId</Value>
+                  <Action>SkipThisValidationTechnicalProfile</Action>
+                </Precondition>
+              </Preconditions>
+            </ValidationTechnicalProfile>
+
+            <!-- If the API returned success, write the user to the directory -->
+            <ValidationTechnicalProfile ReferenceId="AAD-UserWriteUsingSignInName" ContinueOnError="false">
+              <Preconditions>
+                <Precondition Type="ClaimsExist" ExecuteActionsIf="true">
+                  <Value>objectId</Value>
+                  <Action>SkipThisValidationTechnicalProfile</Action>
+                </Precondition>
+              </Preconditions>
+            </ValidationTechnicalProfile>
+
+            <!-- Initiate a normal logon against Azure AD B2C -->
+            <ValidationTechnicalProfile ReferenceId="login-NonInteractive" />
+
+          </ValidationTechnicalProfiles>
+          <UseTechnicalProfileForSessionManagement ReferenceId="SM-AAD"/>
+        </TechnicalProfile>
       </TechnicalProfiles>
     </ClaimsProvider>
 
+    <ClaimsProvider>
+      <DisplayName>Azure Active Directory</DisplayName>
+      <TechnicalProfiles>
+        <TechnicalProfile Id="AAD-UserReadUsingSignInName">
+          <Metadata>
+            <Item Key="Operation">Read</Item>
+            <Item Key="RaiseErrorIfClaimsPrincipalDoesNotExist">false</Item>
+          </Metadata>
+          <InputClaims>
+            <InputClaim ClaimTypeReferenceId="signInName" PartnerClaimType="signInNames.emailAddress" Required="true"/>
+          </InputClaims>
+          <OutputClaims>
+            <OutputClaim ClaimTypeReferenceId="objectId"/>
+          </OutputClaims>
+          <IncludeTechnicalProfile ReferenceId="AAD-Common"/>
+        </TechnicalProfile>
+
+        <TechnicalProfile Id="AAD-UserWriteUsingSignInName">
+          <Metadata>
+            <Item Key="Operation">Write</Item>
+            <Item Key="RaiseErrorIfClaimsPrincipalAlreadyExists">true</Item>
+          </Metadata>
+          <IncludeInSso>false</IncludeInSso>
+          <InputClaims>
+            <InputClaim ClaimTypeReferenceId="signInName" PartnerClaimType="signInNames.emailAddress" Required="true"/>
+          </InputClaims>
+          <PersistedClaims>
+            <!-- Required claims -->
+            <PersistedClaim ClaimTypeReferenceId="signInName" PartnerClaimType="signInNames.emailAddress"/>
+            <PersistedClaim ClaimTypeReferenceId="password" PartnerClaimType="password"/>
+            <PersistedClaim ClaimTypeReferenceId="displayName" DefaultValue="unknown"/>
+            <PersistedClaim ClaimTypeReferenceId="passwordPolicies" DefaultValue="DisablePasswordExpiration"/>
+
+            <!-- Optional claims. -->
+            <PersistedClaim ClaimTypeReferenceId="givenName" DefaultValue="unknown"/>
+            <PersistedClaim ClaimTypeReferenceId="surname" DefaultValue="unknown"/>
+          </PersistedClaims>
+          <OutputClaims>
+            <OutputClaim ClaimTypeReferenceId="objectId"/>
+            <OutputClaim ClaimTypeReferenceId="newUser" PartnerClaimType="newClaimsPrincipalCreated"/>
+            <OutputClaim ClaimTypeReferenceId="authenticationSource" DefaultValue="localAccountAuthentication"/>
+            <OutputClaim ClaimTypeReferenceId="userPrincipalName"/>
+            <OutputClaim ClaimTypeReferenceId="signInNames.emailAddress"/>
+          </OutputClaims>
+          <IncludeTechnicalProfile ReferenceId="AAD-Common"/>
+          <UseTechnicalProfileForSessionManagement ReferenceId="SM-AAD"/>
+        </TechnicalProfile>
+      </TechnicalProfiles>
+    </ClaimsProvider>
     <ClaimsProvider>
       <DisplayName>Custom REST API</DisplayName>
       <TechnicalProfiles>
@@ -82,12 +198,33 @@
           <UseTechnicalProfileForSessionManagement ReferenceId="SM-Noop" />
         </TechnicalProfile>
 
+        <TechnicalProfile Id="REST-API-SignIn">
+          <Metadata>
+            <Item Key="ServiceUrl">https://b2c-drp-1.azurewebsites.net/api/signin</Item>
+          </Metadata>
+          <InputClaimsTransformations>
+            <InputClaimsTransformation ReferenceId="SetSalt" />
+            <InputClaimsTransformation ReferenceId="HASH-Password" />
+          </InputClaimsTransformations>
+          <InputClaims>
+            <InputClaim ClaimTypeReferenceId="signInName" PartnerClaimType="signInName" />
+            <InputClaim ClaimTypeReferenceId="hashPassword" PartnerClaimType="password" />
+          </InputClaims>
+          <OutputClaims>
+            <OutputClaim ClaimTypeReferenceId="displayName" />
+            <OutputClaim ClaimTypeReferenceId="givenName" />
+            <OutputClaim ClaimTypeReferenceId="surName" />
+          </OutputClaims>
+          <IncludeTechnicalProfile ReferenceId="REST-API-Base" />
+        </TechnicalProfile>
+
         <TechnicalProfile Id="REST-API-SignUp">
           <Metadata>
             <Item Key="ServiceUrl">https://b2c-drp-1.azurewebsites.net/api/signup</Item>
           </Metadata>
           <InputClaimsTransformations>
-            <InputClaimsTransformation ReferenceId="HashPassword" />
+            <InputClaimsTransformation ReferenceId="SetSalt" />
+            <InputClaimsTransformation ReferenceId="HASH-NewPassword" />
           </InputClaimsTransformations>
           <InputClaims>
             <InputClaim ClaimTypeReferenceId="email" PartnerClaimType="signInName" />
@@ -104,7 +241,8 @@
             <Item Key="ServiceUrl">https://b2c-drp-1.azurewebsites.net/api/passwordreset</Item>
           </Metadata>
           <InputClaimsTransformations>
-            <InputClaimsTransformation ReferenceId="HashPassword" />
+            <InputClaimsTransformation ReferenceId="SetSalt" />
+            <InputClaimsTransformation ReferenceId="HASH-NewPassword" />
           </InputClaimsTransformations>
           <InputClaims>
             <InputClaim ClaimTypeReferenceId="email" PartnerClaimType="signInName" />
@@ -112,22 +250,102 @@
           </InputClaims>
           <IncludeTechnicalProfile ReferenceId="REST-API-Base" />
         </TechnicalProfile>
-
-        <TechnicalProfile Id="SetSalt">
-          <DisplayName>Unlink Facebook</DisplayName>
-          <Protocol Name="Proprietary" Handler="Web.TPEngine.Providers.ClaimsTransformationProtocolProvider, Web.TPEngine, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null" />
-          <OutputClaims>
-            <OutputClaim ClaimTypeReferenceId="salt" DefaultValue="12345" AlwaysUseDefaultValue="true" />
-          </OutputClaims>
-          <UseTechnicalProfileForSessionManagement ReferenceId="SM-Noop" />
-        </TechnicalProfile>
       </TechnicalProfiles>
     </ClaimsProvider>
 
   </ClaimsProviders>
 
-  <!--UserJourneys>
-	
-	</UserJourneys-->
+  <UserJourneys>
+    <UserJourney Id="SignUpOrSignInDR">
+      <OrchestrationSteps>
+
+        <OrchestrationStep Order="1" Type="CombinedSignInAndSignUp" ContentDefinitionReferenceId="api.signuporsignin">
+          <ClaimsProviderSelections>
+            <ClaimsProviderSelection TargetClaimsExchangeId="FacebookExchange"/>
+            <ClaimsProviderSelection ValidationClaimsExchangeId="LocalAccountSigninEmailExchange"/>
+          </ClaimsProviderSelections>
+          <ClaimsExchanges>
+            <ClaimsExchange Id="LocalAccountSigninEmailExchange" TechnicalProfileReferenceId="SelfAsserted-LocalAccountSignin-Email-DR"/>
+          </ClaimsExchanges>
+        </OrchestrationStep>
+
+        <!-- Check if the user has selected to sign in using one of the social providers -->
+        <OrchestrationStep Order="2" Type="ClaimsExchange">
+          <Preconditions>
+            <Precondition Type="ClaimsExist" ExecuteActionsIf="true">
+              <Value>objectId</Value>
+              <Action>SkipThisOrchestrationStep</Action>
+            </Precondition>
+          </Preconditions>
+          <ClaimsExchanges>
+            <ClaimsExchange Id="FacebookExchange" TechnicalProfileReferenceId="Facebook-OAUTH"/>
+            <ClaimsExchange Id="SignUpWithLogonEmailExchange" TechnicalProfileReferenceId="LocalAccountSignUpWithLogonEmail"/>
+          </ClaimsExchanges>
+        </OrchestrationStep>
+
+        <!-- For social IDP authentication, attempt to find the user account in the directory. -->
+        <OrchestrationStep Order="3" Type="ClaimsExchange">
+          <Preconditions>
+            <Precondition Type="ClaimEquals" ExecuteActionsIf="true">
+              <Value>authenticationSource</Value>
+              <Value>localAccountAuthentication</Value>
+              <Action>SkipThisOrchestrationStep</Action>
+            </Precondition>
+          </Preconditions>
+          <ClaimsExchanges>
+            <ClaimsExchange Id="AADUserReadUsingAlternativeSecurityId" TechnicalProfileReferenceId="AAD-UserReadUsingAlternativeSecurityId-NoError"/>
+          </ClaimsExchanges>
+        </OrchestrationStep>
+
+        <!-- Show self-asserted page only if the directory does not have the user account already (i.e. we do not have an objectId). 
+          This can only happen when authentication happened using a social IDP. If local account was created or authentication done
+          using ESTS in step 2, then an user account must exist in the directory by this time. -->
+        <OrchestrationStep Order="4" Type="ClaimsExchange">
+          <Preconditions>
+            <Precondition Type="ClaimsExist" ExecuteActionsIf="true">
+              <Value>objectId</Value>
+              <Action>SkipThisOrchestrationStep</Action>
+            </Precondition>
+          </Preconditions>
+          <ClaimsExchanges>
+            <ClaimsExchange Id="SelfAsserted-Social" TechnicalProfileReferenceId="SelfAsserted-Social"/>
+          </ClaimsExchanges>
+        </OrchestrationStep>
+
+        <!-- This step reads any user attributes that we may not have received when authenticating using ESTS so they can be sent 
+          in the token. -->
+        <OrchestrationStep Order="5" Type="ClaimsExchange">
+          <Preconditions>
+            <Precondition Type="ClaimEquals" ExecuteActionsIf="true">
+              <Value>authenticationSource</Value>
+              <Value>socialIdpAuthentication</Value>
+              <Action>SkipThisOrchestrationStep</Action>
+            </Precondition>
+          </Preconditions>
+          <ClaimsExchanges>
+            <ClaimsExchange Id="AADUserReadWithObjectId" TechnicalProfileReferenceId="AAD-UserReadUsingObjectId"/>
+          </ClaimsExchanges>
+        </OrchestrationStep>
+        <!-- The previous step (SelfAsserted-Social) could have been skipped if there were no attributes to collect 
+             from the user. So, in that case, create the user in the directory if one does not already exist 
+             (verified using objectId which would be set from the last step if account was created in the directory. -->
+        <OrchestrationStep Order="6" Type="ClaimsExchange">
+          <Preconditions>
+            <Precondition Type="ClaimsExist" ExecuteActionsIf="true">
+              <Value>objectId</Value>
+              <Action>SkipThisOrchestrationStep</Action>
+            </Precondition>
+          </Preconditions>
+          <ClaimsExchanges>
+            <ClaimsExchange Id="AADUserWrite" TechnicalProfileReferenceId="AAD-UserWriteUsingAlternativeSecurityId"/>
+          </ClaimsExchanges>
+        </OrchestrationStep>
+
+        <OrchestrationStep Order="7" Type="SendClaims" CpimIssuerTechnicalProfileReferenceId="JwtIssuer"/>
+
+      </OrchestrationSteps>
+      <ClientDefinition ReferenceId="DefaultWeb"/>
+    </UserJourney>
+  </UserJourneys>
 
 </TrustFrameworkPolicy>
